@@ -25,8 +25,13 @@ main = do
     widthptr <- malloc 
     heightptr <- malloc
     eglInitialize egldpy widthptr heightptr
+    width <- peek widthptr 
+    height <- peek heightptr 
+    print (width,height) 
     gtkroutine egldpy  
-    eglTerminate egldpy 
+    eglTerminate egldpy
+    free widthptr 
+    free heightptr  
 
 gtkroutine egldpy = do
   window <- windowNew 
