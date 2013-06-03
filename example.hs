@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans
@@ -19,7 +20,10 @@ import Graphics.Rendering.EGL.Raw.Types
 import Prelude hiding (forM_)
 
 foreign import ccall unsafe "example.h c_routine"
-  c_routine :: Ptr X11.Display -> Ptr EGLDisplay -> IO ()
+  c_routine :: Ptr X11.Display -> Ptr EGLDisplay -> Ptr EGLConfig -> Ptr CInt -> IO ()
+
+-- foreign import ccall unsafe "example.h getAttribs"
+--   getAttribs :: IO (Ptr CInt)
 
 
 kEGL_OPENGL_ES_BIT =		0x0001	
@@ -128,34 +132,54 @@ main = do
   putStrLn =<< peekCString =<< eglQueryString egldpy kEGL_EXTENSION
   putStrLn =<< peekCString =<< eglQueryString egldpy kEGL_CLIENT_APIS
 
-  p_eglconfig <- malloc 
-  p_numconfig <- malloc 
+  --  p_eglcfg <- malloc 
 
 
-  let attribs = SV.fromList [ kEGL_RED_SIZE,  1
-                            , kEGL_GREEN_SIZE, 1 
-                            , kEGL_BLUE_SIZE, 1
-                            , kEGL_DEPTH_SIZE, 1 
-                            , kEGL_RENDERABLE_TYPE, kEGL_OPENGL_ES2_BIT
-                            , kEGL_NONE ] 
+  let (attribs :: SV.Vector CInt) 
+        = SV.fromList [ kEGL_RED_SIZE,  1
+                      , kEGL_GREEN_SIZE, 1 
+                      , kEGL_BLUE_SIZE, 1
+                      , kEGL_DEPTH_SIZE, 1 
+                      , kEGL_RENDERABLE_TYPE, kEGL_OPENGL_ES2_BIT
+                      , kEGL_NONE ] 
       ctxt_attribs = SV.fromList [ kEGL_CONTEXT_CLIENT_VERSION, 2 
                                  , kEGL_NONE ] 
 
-  b <- SV.unsafeWith attribs $ \p_attrib -> 
-         eglChooseConfig egldpy p_attrib p_eglconfig 1 p_numconfig
-  print b 
 
-  putStrLn . ("numconfig = " ++ ) . show =<< peek p_numconfig 
+  -- p_attrib <- getAttribs 
+  p_numconfig <- malloc 
 
-  eglconfig <- mkEGLConfig p_eglconfig 
+  ptrptr <- malloc 
+  let (fp_attrib,_) = SV.unsafeToForeignPtr0 attribs 
+  withForeignPtr fp_attrib $ \p_attrib -> eglChooseConfig egldpy p_attrib ptrptr 1 p_numconfig
+   
+  p_eglcfg <- peek ptrptr 
+  eglcfg <- mkEGLConfig p_eglcfg -- nullPtr -- p_eglcfg 
+
+  
+  
+  
+
+  -- putStrLn . ("numconfig = " ++ ) . show =<< peek p_numconfig 
+
+
+  -- print eglcfg 
 
   let X11.Display p_x11dpy = x11dpy 
       EGLDisplay fp_egldpy = egldpy 
-  withForeignPtr fp_egldpy $ \p_egldpy -> c_routine p_x11dpy p_egldpy 
+      EGLConfig fp_eglcfg = eglcfg 
+
+  {-
+  -- let (fp_attrib,_) = SV.unsafeToForeignPtr0 attribs 
+  withForeignPtr fp_attrib $ \p_attrib -> 
+    withForeignPtr fp_egldpy $ \p_egldpy -> 
+      withForeignPtr fp_eglcfg $ \p_eglcfg -> do 
+        print p_eglcfg 
+        c_routine p_x11dpy p_egldpy p_eglcfg p_attrib --  p_numconfig 
+  -}
 
 
-{-
-  -- gtkroutine egldpy eglconfig eglctxt  
+  -- gtkroutine egldpy eglcfg eglctxt  
 
 
   let dflt = defaultScreen x11dpy
@@ -167,7 +191,7 @@ main = do
   mapWindow x11dpy win
   sync x11dpy False
   -- threadDelay (10 * 1000000)
-
+  
 
   b2 <- eglBindAPI kEGL_OPENGL_ES_API
   print b2 
@@ -175,7 +199,7 @@ main = do
   nullEGLContext <- mkEGLContext nullPtr
 
   eglctxt <- SV.unsafeWith ctxt_attribs $ \p_ctxt_attrib -> 
-          eglCreateContext egldpy eglconfig nullEGLContext p_ctxt_attrib
+          eglCreateContext egldpy eglcfg nullEGLContext p_ctxt_attrib
 
 
   p_testval <- malloc
@@ -184,7 +208,7 @@ main = do
   print b3 
   print =<< peek p_testval 
 
-  eglsfc <- liftIO $ eglCreateWindowSurface egldpy eglconfig (fromIntegral win) nullPtr 
+  eglsfc <- liftIO $ eglCreateWindowSurface egldpy eglcfg (fromIntegral win) nullPtr 
 
   err <- liftIO $ eglGetError 
 
@@ -192,9 +216,6 @@ main = do
 
   let EGLSurface ptr = eglsfc 
   liftIO $ print ptr 
-  let EGLConfig ptrcfg = eglconfig 
-  liftIO $ putStrLn ("config = " ++ show ptrcfg) 
-
 
   p_testval <- liftIO $ malloc 
   b <- liftIO $ eglQuerySurface egldpy eglsfc kEGL_WIDTH p_testval 
@@ -204,7 +225,7 @@ main = do
  
 
 
--}
+
 
   eglTerminate egldpy
 
@@ -213,8 +234,8 @@ main = do
   free majorptr 
   free minorptr  
 
-  free p_eglconfig
-  free p_numconfig 
+  -- free p_eglcfg
+  -- free p_numconfig 
   -- free p_testval 
 
 gtkroutine egldpy eglconfig eglctxt = do
