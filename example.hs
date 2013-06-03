@@ -1,3 +1,5 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
+
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
@@ -15,6 +17,10 @@ import Graphics.Rendering.EGL.Raw
 import Graphics.Rendering.EGL.Raw.Types 
 -- 
 import Prelude hiding (forM_)
+
+foreign import ccall unsafe "example.h c_routine"
+  c_routine :: Ptr X11.Display -> Ptr EGLDisplay -> IO ()
+
 
 kEGL_OPENGL_ES_BIT =		0x0001	
 kEGL_OPENVG_BIT	   =		0x0002	
@@ -143,8 +149,12 @@ main = do
 
   eglconfig <- mkEGLConfig p_eglconfig 
 
+  let X11.Display p_x11dpy = x11dpy 
+      EGLDisplay fp_egldpy = egldpy 
+  withForeignPtr fp_egldpy $ \p_egldpy -> c_routine p_x11dpy p_egldpy 
 
 
+{-
   -- gtkroutine egldpy eglconfig eglctxt  
 
 
@@ -194,7 +204,7 @@ main = do
  
 
 
-
+-}
 
   eglTerminate egldpy
 
@@ -205,7 +215,7 @@ main = do
 
   free p_eglconfig
   free p_numconfig 
-  free p_testval 
+  -- free p_testval 
 
 gtkroutine egldpy eglconfig eglctxt = do
   window <- windowNew 
