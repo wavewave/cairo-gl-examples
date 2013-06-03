@@ -4,6 +4,7 @@
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
+import Data.Default (def)
 import Data.Foldable (forM_) 
 -- import Data.IORef
 import qualified Data.Vector.Storable as SV hiding (forM_) 
@@ -12,6 +13,7 @@ import Foreign.C
 import Graphics.Rendering.Cairo
 import Graphics.UI.Gtk 
 import Graphics.X11.Xlib as X11 
+import Graphics.X11.Xlib.Misc
 import Numeric (showHex)
 -- 
 import Graphics.Rendering.EGL.Raw
@@ -27,6 +29,12 @@ foreign import ccall unsafe "example.h c_routine"
 
 foreign import ccall unsafe "example.h c_draw"
   c_draw :: Ptr EGLDisplay -> Ptr EGLSurface -> IO ()
+
+foreign import ccall unsafe "example.h reshape" 
+  reshape :: CInt -> CInt -> IO ()
+
+foreign import ccall unsafe "example.h init" 
+  c_init :: IO ()
 
 
 kEGL_OPENGL_ES_BIT =		0x0001	
@@ -159,14 +167,7 @@ main = do
   p_eglcfg <- peek ptrptr 
   eglcfg <- mkEGLConfig p_eglcfg -- nullPtr -- p_eglcfg 
 
-  
-  
-  
-
-  -- putStrLn . ("numconfig = " ++ ) . show =<< peek p_numconfig 
-
-
-  -- print eglcfg 
+    
 
   let X11.Display p_x11dpy = x11dpy 
       EGLDisplay fp_egldpy = egldpy 
@@ -182,63 +183,86 @@ main = do
   -}
 
 
-  {-
+
+  p_vid <- malloc 
+  bb <- eglGetConfigAttrib egldpy eglcfg kEGL_NATIVE_VISUAL_ID p_vid
+  print bb 
+  vid <- peek p_vid 
+  putStrLn ("vid = " ++ show vid )
+
+
+
+  -- XGetVisualInfo
+  
 
   let dflt = defaultScreen x11dpy
       border = blackPixel x11dpy dflt
       background = whitePixel x11dpy dflt
-  rootw <- rootWindow x11dpy dflt
-  win <- createSimpleWindow x11dpy rootw 0 0 1000 1000 1 border background
-  -}
 
-  b2 <- eglBindAPI kEGL_OPENGL_ES_API
-  print b2 
+
+
+  rootw <- rootWindow x11dpy dflt
+
+  let visTemplate = def { visualInfo_visualID = fromIntegral vid } 
+
+  vinfo:_ <- getVisualInfo x11dpy visualIDMask visTemplate 
+  -- win <- createSimpleWindow x11dpy rootw 0 0 1000 1000 1 border background
+  print vinfo 
+
+
+  let visual = visualInfo_visual vinfo 
+      depth = visualInfo_depth vinfo
+  
+  colmap <- createColormap x11dpy rootw visual allocNone
+
+  win <- allocaSetWindowAttributes $ \attr -> do 
+           let mask = cWBackPixel .|. cWBorderPixel .|. cWColormap .|. cWEventMask
+           set_background_pixel attr 0
+           set_border_pixel attr 0 
+           set_colormap attr colmap 
+           set_event_mask attr (structureNotifyMask .|. exposureMask .|. keyPressMask) 
+           createWindow x11dpy rootw 0 0 1000 1000 0 depth inputOutput visual mask attr 
+
+
+
+  eglBindAPI kEGL_OPENGL_ES_API
 
   nullEGLContext <- mkEGLContext nullPtr
 
   eglctxt <- SV.unsafeWith ctxt_attribs $ \p_ctxt_attrib -> 
           eglCreateContext egldpy eglcfg nullEGLContext p_ctxt_attrib
 
-
+  {-
   p_testval <- malloc
-  b3 <- eglQueryContext egldpy eglctxt kEGL_CONTEXT_CLIENT_VERSION p_testval 
+  eglQueryContext egldpy eglctxt kEGL_CONTEXT_CLIENT_VERSION p_testval 
 
   print b3 
   print =<< peek p_testval 
-
-  gtkroutine egldpy eglcfg eglctxt  
- 
-  {- 
-  eglsfc <- eglCreateWindowSurface egldpy eglcfg (fromIntegral win) nullPtr 
-  err <- eglGetError 
-  putStrLn ("errorcode = " ++ showHex err "" )
-  p_testval <- malloc 
-  b <- eglQuerySurface egldpy eglsfc kEGL_WIDTH p_testval 
-  print b 
-  print =<< peek p_testval 
   -}
-  -- setTextProperty x11dpy win "Hello World" wM_NAME
-  -- mapWindow x11dpy win
+  -- gtkroutine egldpy eglcfg eglctxt  
+ 
+   
+  eglsfc <- eglCreateWindowSurface egldpy eglcfg (fromIntegral win) nullPtr 
+  
+  setTextProperty x11dpy win "Hello World" wM_NAME
+  mapWindow x11dpy win
   -- sync x11dpy False
 
+  eglMakeCurrent egldpy eglsfc eglsfc eglctxt 
+
+  c_init 
+  reshape 1000 1000 
 
 
-
-  {-
   let EGLDisplay fp_egldpy = egldpy 
       EGLSurface fp_eglsfc = eglsfc 
-
-
   liftIO $ withForeignPtr fp_egldpy $ \p_egldpy -> 
              withForeignPtr fp_eglsfc $ \p_eglsfc -> c_draw p_egldpy p_eglsfc
-
-
-
-
- 
-
   threadDelay (10 * 1000000)
-  -}
+
+
+  -- end of use X11 direct
+
 
 
   eglTerminate egldpy
@@ -247,7 +271,7 @@ main = do
 
   free majorptr 
   free minorptr  
-
+  free p_vid 
   -- free p_eglcfg
   -- free p_numconfig 
   -- free p_testval 
