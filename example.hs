@@ -25,6 +25,9 @@ foreign import ccall unsafe "example.h c_routine"
 -- foreign import ccall unsafe "example.h getAttribs"
 --   getAttribs :: IO (Ptr CInt)
 
+foreign import ccall unsafe "example.h c_draw"
+  c_draw :: Ptr EGLDisplay -> Ptr EGLSurface -> IO ()
+
 
 kEGL_OPENGL_ES_BIT =		0x0001	
 kEGL_OPENVG_BIT	   =		0x0002	
@@ -179,19 +182,14 @@ main = do
   -}
 
 
-  -- gtkroutine egldpy eglcfg eglctxt  
-
+  {-
 
   let dflt = defaultScreen x11dpy
       border = blackPixel x11dpy dflt
       background = whitePixel x11dpy dflt
   rootw <- rootWindow x11dpy dflt
-  win <- createSimpleWindow x11dpy rootw 0 0 100 100 1 border background
-  setTextProperty x11dpy win "Hello World" wM_NAME
-  mapWindow x11dpy win
-  sync x11dpy False
-  -- threadDelay (10 * 1000000)
-  
+  win <- createSimpleWindow x11dpy rootw 0 0 1000 1000 1 border background
+  -}
 
   b2 <- eglBindAPI kEGL_OPENGL_ES_API
   print b2 
@@ -208,23 +206,39 @@ main = do
   print b3 
   print =<< peek p_testval 
 
-  eglsfc <- liftIO $ eglCreateWindowSurface egldpy eglcfg (fromIntegral win) nullPtr 
+  gtkroutine egldpy eglcfg eglctxt  
+ 
+  {- 
+  eglsfc <- eglCreateWindowSurface egldpy eglcfg (fromIntegral win) nullPtr 
+  err <- eglGetError 
+  putStrLn ("errorcode = " ++ showHex err "" )
+  p_testval <- malloc 
+  b <- eglQuerySurface egldpy eglsfc kEGL_WIDTH p_testval 
+  print b 
+  print =<< peek p_testval 
+  -}
+  -- setTextProperty x11dpy win "Hello World" wM_NAME
+  -- mapWindow x11dpy win
+  -- sync x11dpy False
 
-  err <- liftIO $ eglGetError 
 
-  liftIO $ putStrLn ("errorcode = " ++ showHex err "" )
 
-  let EGLSurface ptr = eglsfc 
-  liftIO $ print ptr 
 
-  p_testval <- liftIO $ malloc 
-  b <- liftIO $ eglQuerySurface egldpy eglsfc kEGL_WIDTH p_testval 
-  liftIO $  print b 
-  liftIO $ print =<< peek p_testval 
+  {-
+  let EGLDisplay fp_egldpy = egldpy 
+      EGLSurface fp_eglsfc = eglsfc 
+
+
+  liftIO $ withForeignPtr fp_egldpy $ \p_egldpy -> 
+             withForeignPtr fp_eglsfc $ \p_eglsfc -> c_draw p_egldpy p_eglsfc
+
+
+
 
  
 
-
+  threadDelay (10 * 1000000)
+  -}
 
 
   eglTerminate egldpy
@@ -238,7 +252,7 @@ main = do
   -- free p_numconfig 
   -- free p_testval 
 
-gtkroutine egldpy eglconfig eglctxt = do
+gtkroutine egldpy eglcfg eglctxt = do
   window <- windowNew 
   vbox <- vBoxNew False 0 
   canvas <- drawingAreaNew 
@@ -252,15 +266,30 @@ gtkroutine egldpy eglconfig eglctxt = do
     nid <- liftIO $ drawableGetID win 
     liftIO $ print nid 
     liftIO $ print (fromNativeWindowId nid :: CULong)
+    eglsfc <- liftIO $ eglCreateWindowSurface egldpy eglcfg (fromNativeWindowId nid) nullPtr 
+    err <- liftIO $ eglGetError 
+    liftIO $ putStrLn ("errorcode = " ++ showHex err "" )
+    p_testval <- liftIO $ malloc 
+    b <- liftIO $ eglQuerySurface egldpy eglsfc kEGL_WIDTH p_testval 
+    liftIO $  print b 
+    liftIO $ print =<< peek p_testval 
 
+    let EGLDisplay fp_egldpy = egldpy 
+        EGLSurface fp_eglsfc = eglsfc 
 
+    liftIO $ eglMakeCurrent egldpy eglsfc eglsfc eglctxt 
+
+    liftIO $ withForeignPtr fp_egldpy $ \p_egldpy -> 
+               withForeignPtr fp_eglsfc $ \p_eglsfc -> c_draw p_egldpy p_eglsfc
+
+    {-
 
     liftIO . renderWithDrawable win $ do 
       setSourceRGBA 0 0 0 1 
       setLineWidth 1.0
       moveTo 100 100 
       lineTo 200 200 
-      stroke
+      stroke -}
   window `on` deleteEvent $ tryEvent $ do 
     liftIO $ mainQuit 
   widgetShowAll window
